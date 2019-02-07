@@ -132,10 +132,16 @@ object Loader {
   def getInsertStatement(config: Config, folder: RunId.ProcessedRunId): Insert = {
     val tableColumns = getColumns(folder.shredTypes)
     val castedColumns = tableColumns.map {
-      // Truncate problematic columns (#55)
+      // Truncate problematic columns (#55, #75)
+      case ("page_url", Varchar(Some(_))) => Select.CastedColumn(Defaults.TempTableColumn, "page_url", Varchar(None), Some(Substring(1, 4096)))
       case ("page_title", Varchar(Some(_))) => Select.CastedColumn(Defaults.TempTableColumn, "page_title", Varchar(None), Some(Substring(1, 2000)))
       case ("page_referrer", Varchar(Some(_))) => Select.CastedColumn(Defaults.TempTableColumn, "page_referrer", Varchar(None), Some(Substring(1, 4096)))
       case ("page_urlpath", Varchar(Some(_))) => Select.CastedColumn(Defaults.TempTableColumn, "page_urlpath", Varchar(None), Some(Substring(1, 3000)))
+      case ("page_urlquery", Varchar(Some(_))) => Select.CastedColumn(Defaults.TempTableColumn, "page_urlquery", Varchar(None), Some(Substring(1, 6000)))
+      case ("page_urlfragment", Varchar(Some(_))) => Select.CastedColumn(Defaults.TempTableColumn, "page_urlfragment", Varchar(None), Some(Substring(1, 3000)))
+      case ("refr_urlpath", Varchar(Some(_))) => Select.CastedColumn(Defaults.TempTableColumn, "refr_urlpath", Varchar(None), Some(Substring(1, 6000)))
+      case ("refr_urlquery", Varchar(Some(_))) => Select.CastedColumn(Defaults.TempTableColumn, "refr_urlquery", Varchar(None), Some(Substring(1, 6000)))
+      case ("refr_urlfragment", Varchar(Some(_))) => Select.CastedColumn(Defaults.TempTableColumn, "refr_urlfragment", Varchar(None), Some(Substring(1, 3000)))
       case ("refr_term", Varchar(Some(_))) => Select.CastedColumn(Defaults.TempTableColumn, "refr_term", Varchar(None), Some(Substring(1, 255)))
       case ("mkt_clickid", Varchar(Some(_))) => Select.CastedColumn(Defaults.TempTableColumn, "mkt_clickid", Varchar(None), Some(Substring(1, 128)))
       // Remove VARCHAR precision (#54)
