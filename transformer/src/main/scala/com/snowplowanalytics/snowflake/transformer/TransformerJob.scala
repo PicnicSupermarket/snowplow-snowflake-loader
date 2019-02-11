@@ -13,15 +13,15 @@
 package com.snowplowanalytics.snowflake.transformer
 
 import org.apache.spark.sql.{SaveMode, SparkSession}
-
 import org.json4s.DefaultFormats
-
 import com.snowplowanalytics.snowflake.core.ProcessManifest
 import com.snowplowanalytics.snowplow.eventsmanifest.EventsManifest.EventsManifestConfig
+import org.slf4j.LoggerFactory
 
 object TransformerJob {
 
   implicit val formats = DefaultFormats
+  val LOG = LoggerFactory.getLogger(TransformerJob.getClass)
 
   /** Process all directories, saving state into DynamoDB */
   def run(spark: SparkSession, manifest: ProcessManifest, tableName: String, jobConfigs: List[TransformerJobConfig], eventsManifestConfig: Option[EventsManifestConfig], inbatch: Boolean): Unit = {
@@ -52,13 +52,31 @@ object TransformerJob {
     sc.register(keysAggregator)
 
     val events = sc
-      .textFile(jobConfig.input)
-      .map { e => Transformer.jsonify(e) }
+      .wholeTextFiles(jobConfig.input)
+      .flatMap{ case (fileName, fileContents) => {
+        fileContents.lines.zipWithIndex.map{case (event, index) =>
+          val lineNumber = index + 1
+          try {
+            Right(Transformer.jsonify(event))
+          } catch {
+            case ex : Throwable =>
+              LOG.error(s"""Could not parse event on line $lineNumber in file $fileName
+                ${ex.getMessage}
+                $event""")
+              Left(event)
+          }
+        }
+      }}
+
+    val goodEvents = events.collect({case Right(x) => x})
+    val errorEvents = events.collect({case Left(x) => x})
+
     val dedupedEvents = if (inbatch) {
-      events
+      goodEvents
         .groupBy { j => ((j._2 \ "event_id").extract[String], (j._2 \ "event_fingerprint").extract[String]) }
         .flatMap { case (_, vs) => vs.take(1) }
-    } else events
+    } else goodEvents
+
     val snowflake = dedupedEvents.flatMap { j =>
       Transformer.transform(j._1, j._2, eventsManifestConfig) match {
         case Some((keys, transformed)) =>
@@ -70,6 +88,16 @@ object TransformerJob {
 
     // DataFrame is used only for S3OutputFormat
     snowflake.toDF.write.mode(SaveMode.Append).text(jobConfig.output)
+
+    // Write out errorEvents if an errorOutput location is defined
+    jobConfig.errorOutput match {
+      case Some(path) =>
+        if (!errorEvents.isEmpty()) {
+          LOG.info(s"Writing error events to $path.")
+          errorEvents.toDF.write.mode(SaveMode.Append).text(path)
+        }
+      case None => LOG.info(s"Discarding error events for ${jobConfig.output}.")
+    }
 
     val keysFinal = keysAggregator.value.toList
     println(s"Shred types for  ${jobConfig.runId}: " + keysFinal.mkString(", "))

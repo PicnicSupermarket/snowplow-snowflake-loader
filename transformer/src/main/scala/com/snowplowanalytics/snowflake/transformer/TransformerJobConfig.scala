@@ -14,7 +14,7 @@ package com.snowplowanalytics.snowflake.transformer
 
 import com.snowplowanalytics.snowflake.core.Config._
 
-case class TransformerJobConfig(enrichedArchive: S3Folder, snowflakeOutput: S3Folder, runId: String) {
+case class TransformerJobConfig(enrichedArchive: S3Folder, snowflakeOutput: S3Folder, errorEventsOutput: Option[S3Folder], runId: String) {
   def input: String = {
     val (enrichedBucket, enrichedPath) = enrichedArchive.splitS3Folder
     s"s3a://$enrichedBucket/$enrichedPath$runIdFolder/*"
@@ -23,6 +23,15 @@ case class TransformerJobConfig(enrichedArchive: S3Folder, snowflakeOutput: S3Fo
   def output: String = {
     val (bucket, path) = snowflakeOutput.splitS3Folder
     s"s3a://$bucket/$path$runIdFolder"
+  }
+
+  def errorOutput: Option[String] = {
+    errorEventsOutput match {
+      case Some(f) =>
+        val (bucket, path) = f.splitS3Folder
+        Some(s"s3a://$bucket/$path$runIdFolder")
+      case None => None
+    }
   }
 
   def runIdFolder: String = runId.split("/").last
